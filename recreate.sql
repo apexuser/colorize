@@ -1,4 +1,3 @@
-drop table color;
-drop sequence color_seq;
+@uninstall
 
 @schema
