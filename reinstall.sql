@@ -1,3 +1,3 @@
 @uninstall
 
-@schema
+@install
