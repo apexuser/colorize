@@ -1,44 +1,76 @@
-create table color (
-id number,
-r number(3, 0),
-g number(3, 0),
-b number(3, 0)
+create sequence color_seq;
+
+create table color_set (
+  color_set_id   number,
+  color_set_name varchar2(100),
+  default_color  varchar2(7) default '#000000'
 );
 
-create sequence color_seq;
+create or replace trigger bi_color_set
+  before insert on color_set
+  for each row
+begin
+  if :new.color_set_id is null then
+  :new.color_set_id := color_seq.nextval;
+  end if; 
+end;
+/
+
+alter table color_set add constraint color_set_fk primary key (color_set_id);
+alter table color_set add constraint color_set_name_uq unique (color_set_name);
+
+comment on table  color_set is                'Stores sets of colors for colorize plug-in';
+comment on column color_set.color_set_id is   'primary key';
+comment on column color_set.color_set_name is 'color set identifier';
+comment on column color_set.default_color is  'color for other items';
+
+insert into color_set (color_set_name) values ('default set');
+
+  --#### color table
+create table color (
+  color_id     number,
+  hex_value    varchar(7),
+  color_set_id number
+);
 
 create or replace trigger bi_color
   before insert on color
   for each row
 begin
-  if :new.id is null then
-  :new.id := color_seq.nextval;
+  if :new.color_id is null then
+  :new.color_id := color_seq.nextval;
   end if; 
 end;
 /
 
-comment on table color is 'List of RGB values of choosen colors';
+alter table color add constraint color_fk primary key (color_id);
+alter table color add constraint color_color_set_fk foreign key (color_set_id) references color_set (color_set_id);
 
-insert into color (r, g, b) values (128, 128, 128);
-insert into color (r, g, b) values (222,   0,   0);
-insert into color (r, g, b) values (  0, 222,   0);
-insert into color (r, g, b) values (  0,   0, 222);
-insert into color (r, g, b) values (222, 222,   0);
-insert into color (r, g, b) values (222,   0, 222);
-insert into color (r, g, b) values (  0, 222, 222);
-insert into color (r, g, b) values (160,   0,   0);
-insert into color (r, g, b) values (  0, 160,   0);
-insert into color (r, g, b) values (  0,   0, 160);
-insert into color (r, g, b) values (128, 128,   0);
-insert into color (r, g, b) values (128,   0, 128);
-insert into color (r, g, b) values (  0, 128, 128);
-insert into color (r, g, b) values ( 96,   0,   0);
-insert into color (r, g, b) values (  0,  96,   0);
-insert into color (r, g, b) values (  0,   0,  96);
-insert into color (r, g, b) values ( 96,  96,   0);
-insert into color (r, g, b) values ( 96,   0,  96);
-insert into color (r, g, b) values (  0,  96,  96);
-insert into color (r, g, b) values (  0,   0,   0);
+comment on table  color is              'List of RGB values of choosen colors';
+comment on column color.color_id is     'primary key';
+comment on column color.hex_value is    'hex value of a RGB color in format #rrggbb';
+comment on column color.color_Set_id is 'reference to color set';
+
+insert into color (hex_value, color_set_id) values ('#808080', 1);
+insert into color (hex_value, color_set_id) values ('#dedede', 1);
+insert into color (hex_value, color_set_id) values ('#00de00', 1);
+insert into color (hex_value, color_set_id) values ('#0000de', 1);
+insert into color (hex_value, color_set_id) values ('#dede00', 1);
+insert into color (hex_value, color_set_id) values ('#de00de', 1);
+insert into color (hex_value, color_set_id) values ('#00dede', 1);
+insert into color (hex_value, color_set_id) values ('#a00000', 1);
+insert into color (hex_value, color_set_id) values ('#00a000', 1);
+insert into color (hex_value, color_set_id) values ('#0000a0', 1);
+insert into color (hex_value, color_set_id) values ('#808000', 1);
+insert into color (hex_value, color_set_id) values ('#800080', 1);
+insert into color (hex_value, color_set_id) values ('#008080', 1);
+insert into color (hex_value, color_set_id) values ('#600000', 1);
+insert into color (hex_value, color_set_id) values ('#006000', 1);
+insert into color (hex_value, color_set_id) values ('#000060', 1);
+insert into color (hex_value, color_set_id) values ('#606000', 1);
+insert into color (hex_value, color_set_id) values ('#600060', 1);
+insert into color (hex_value, color_set_id) values ('#006060', 1);
+insert into color (hex_value, color_set_id) values ('#000000', 1);
 commit;
 
 @pkg;
