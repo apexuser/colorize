@@ -3,7 +3,7 @@ create sequence color_seq;
 create table color_set (
   color_set_id   number,
   color_set_name varchar2(100),
-  default_color  varchar2(7) default '#000000'
+  others_color   varchar2(7) default '#000000'
 );
 
 create or replace trigger bi_color_set
@@ -22,7 +22,7 @@ alter table color_set add constraint color_set_name_uq unique (color_set_name);
 comment on table  color_set is                'Stores sets of colors for colorize plug-in';
 comment on column color_set.color_set_id is   'primary key';
 comment on column color_set.color_set_name is 'color set identifier';
-comment on column color_set.default_color is  'color for other items';
+comment on column color_set.others_color is   'color for other items';
 
 insert into color_set (color_set_name) values ('default set');
 
@@ -49,7 +49,7 @@ alter table color add constraint color_color_set_fk foreign key (color_set_id) r
 comment on table  color is              'List of RGB values of choosen colors';
 comment on column color.color_id is     'primary key';
 comment on column color.hex_value is    'hex value of a RGB color in format #rrggbb';
-comment on column color.color_Set_id is 'reference to color set';
+comment on column color.color_set_id is 'reference to color set';
 
 insert into color (hex_value, color_set_id) values ('#808080', 1);
 insert into color (hex_value, color_set_id) values ('#dedede', 1);
@@ -72,6 +72,20 @@ insert into color (hex_value, color_set_id) values ('#600060', 1);
 insert into color (hex_value, color_set_id) values ('#006060', 1);
 insert into color (hex_value, color_set_id) values ('#000000', 1);
 commit;
+
+create or replace type colorize_result_row as object (
+  id    number,
+  value varchar2(4000),
+  url   varchar2(4000),
+  color color.hex_value%type
+);
+/
+
+create or replace type colorize_result_table as table of colorize_result_row;
+/
+
+create or replace type colorize_color_table as table of varchar2(7);
+/
 
 @pkg;
 @pkg_body;
