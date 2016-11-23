@@ -73,21 +73,18 @@ insert into color (hex_value, color_set_id) values ('#006060', 1);
 insert into color (hex_value, color_set_id) values ('#000000', 1);
 commit;
 
-create or replace type colorize_result_row as object (
+create global temporary table colorize_result (
   id            number,
   value         varchar2(4000),
   url           varchar2(4000),
   color         varchar2(7),
-  svg_def       varchar2(4000),
   svg_rect_code varchar2(4000)
-);
-/
+) on commit delete rows;
 
-create or replace type colorize_result_table as table of colorize_result_row;
-/
-
-create or replace type colorize_color_table as table of varchar2(7);
-/
+create global temporary table colorize_colors (
+  id            number,
+  color         varchar2(7)
+) on commit delete rows;
 
 @pkg;
 @pkg_body;
