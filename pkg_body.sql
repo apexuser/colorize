@@ -1,7 +1,6 @@
 create or replace package body colorize as
 
---type t_assigned_color is table of color.hex_value%type index by varchar2(4000);
---type t_string         is table of varchar2(4000) index by binary_integer;
+type t_string         is table of varchar2(4000) index by binary_integer;
 
 procedure init_colors (
       p_region      in apex_plugin.t_region,
@@ -31,101 +30,87 @@ end;
 procedure convert_to_result_table (
       query_result  in apex_plugin_util.t_column_value_list,
       result_table out colorize_result_table) is
+  r number;
 begin
+  result_table := colorize_result_table();
+  result_table.extend(query_result(1).count);
+  htp.p('1 query_result = ' || query_result(1).count || ' result_table = ' || result_table.count || '<br />');
+  r := result_table.first;
   for i in query_result(1).first .. query_result(1).last loop
-    result_table.extend();
-    result_table(result_table.last) := colorize_result_row(i, query_result(1)(i), query_result(2)(i), '', '');
+    result_table(i) := colorize_result_row(i, query_result(1)(i), query_result(2)(i), '', '', '');
+    r := result_table.next(r);
   end loop;
+  htp.p('2 query_result = ' || query_result(1).count || ' result_table = ' || result_table.count || '<br />');
 end;
 
 procedure assign_colors_to_first (
-      result_table out colorize_result_table,
-      color_list    in colorize_color_table) is
-  val varchar2(4000);
+      result_table in out colorize_result_table,
+      color_list   in     colorize_color_table) is
 begin
-  select cast(multiset(select id, value, url, column_value, svg_rect_code
-    from (select tt.id, tt.value, tt.url, c.column_value, tt.svg_rect_code
-            from (select t.*, dense_rank() over (order by t.first_id) f_rank
-                    from (select id, value, url, color, svg_rect_code, 
-                                 min(id) keep (dense_rank first order by id) over (partition by value) first_id
-                            from table(result_table)
-                          ) t
-                  ) tt join
-                 (select rownum, column_value
-                    from table(color_list)
-                  ) c on tt.f_rank = c.column_value
-          order by id
-          )
+  select cast(multiset(
+      select id, value, url, column_value, svg_rect_code
+        from (select tt.id, tt.value, tt.url, c.column_value, tt.svg_def, tt.svg_rect_code
+                from (select t.*, dense_rank() over (order by t.first_id) f_rank
+                        from (select id, value, url, color, svg_def, svg_rect_code, 
+                                     min(id) keep (dense_rank first order by id) over (partition by value) first_id
+                                from table(result_table)
+                              ) t
+                      ) tt left join
+                     (select rownum, column_value
+                        from table(color_list)
+                      ) c on tt.f_rank = c.rownum
+              order by id
+              )
     ) as colorize_result_table)
     into result_table
     from dual;
 end;
 
 procedure assign_colors_to_frequent (
-      result_table out colorize_result_table,
-      color_list    in colorize_color_table) is
-  type t_str is table of varchar2(4000) index by binary_integer;
-  type t_num is table of binary_integer index by varchar2(4000);
-  count_vals t_str;
-  val_counts t_num;
-  cnt        number;
-  val varchar2(4000);
-  clr varchar2(4000);
-  idx_color number;
-  idx_value number;
-  idx_str   varchar2(4000);
+      result_table in out colorize_result_table,
+      color_list   in     colorize_color_table) is
+      rt2 colorize_result_table;
 begin
-  for i in query_result(1).first .. query_result(1).last loop
-    if val_counts.exists(query_result(1)(i)) then
-       cnt := val_counts(query_result(1)(i)) + 1;
-    else
-       cnt := 1;
-    end if;
-    val_counts(query_result(1)(i)) := cnt;
-  end loop;
-  
-  
-
-  idx_str := val_counts.first;
-  while idx_str is not null loop
-    count_vals(val_counts(idx_str)) := idx_str;
-    htp.p('val_counts(' || idx_str || ') = ' || val_counts(idx_str) || ' count_vals count = ' || count_vals.count || '<br />');
-    idx_str := val_counts.next(idx_str);
-  end loop;
-  
-  idx_color := color_list.first;
-  idx_value := count_vals.last;
-  loop
-    assigned_colors(count_vals(idx_value)) := color_list(idx_color);
-    idx_color := color_list.next(idx_color);
-    exit when idx_color is null;
-  end loop;
-htp.p('assigned_colors = ' || assigned_colors.count || '<br />');
+  select cast(multiset(
+      select r.id, value, r.url, c.color, r.svg_def, r.svg_rect_code
+        from (select id, value, url, color, svg_def, svg_rect_code, dense_rank() over (order by val_cnt desc, value) rn
+                from (select id, value, url, color, svg_def, svg_rect_code, count(*) over (partition by value) val_cnt
+                        from table(result_table)
+                      )
+              ) r left join
+             (select rownum rn, column_value color
+                from table(color_list)
+              ) c on r.rn = c.rn
+       order by id
+    ) as colorize_result_table)
+    into rt2
+    from dual;
 end;
 
 procedure prepare_defs_list (
-      assigned_colors in  t_assigned_color,
-      others_value    in varchar2,
-      others_color    in varchar2,
-      defs_list       out t_string) is
-  idx varchar2(4000);
+      result_table  in colorize_result_table,
+      others_value  in varchar2,
+      others_color  in varchar2,
+      defs_list    out t_string) is
+  idx number;
   def_template varchar2(4000) := '<style type="text/css"><![CDATA[ .#VALUE# { fill: #COLOR#; } ]]></style>';
 begin
-  idx := assigned_colors.first;
+  htp.p('result_table = ' || result_table.count);
+  idx := result_table.first;
   while idx is not null loop
-    defs_list(defs_list.count + 1) := replace(replace(def_template, '#VALUE#', idx), '#COLOR#', assigned_colors(idx));
-    idx := assigned_colors.next(idx);
+    if result_table(idx).color is not null then
+       defs_list(defs_list.count + 1) := replace(replace(def_template, '#VALUE#', result_table(idx).value), '#COLOR#', result_table(idx).color);
+    end if;
+    idx := result_table.next(idx);
   end loop;
   defs_list(defs_list.count + 1) := replace(replace(def_template, '#VALUE#', others_value), '#COLOR#', others_color);
 end;
 
 procedure prepare_squares_list (
-      query_result     in  apex_plugin_util.t_column_value_list,
-      assigned_colors  in  t_assigned_color,
-      others_color     in  varchar2,
-      square_size      in  number,
-      squares_in_col   in  number,
-      svg_squares_list out t_string) is
+      result_table   in out colorize_result_table,
+      others_color   in     varchar2,
+      square_size    in     number,
+      squares_in_col in     number) is
   square_template varchar2(4000) := '<rect x="#X#" y="#Y#" width="#W#" height="#H#" class="#CLASS#" style="cursor:pointer;#URL#"/>';
   xpos number;
   ypos number;
@@ -134,30 +119,20 @@ procedure prepare_squares_list (
   w number := square_size;
   h number := square_size;
   str varchar2(1000);
+  i number;
 begin
-  for i in query_result(1).first .. query_result(1).last loop
+  i := result_table.first;
+  while i is not null loop
     xpos := floor(i / squares_in_col) + 1;
     ypos := i - (xpos - 1) * squares_in_col;
     x := (xpos - 1) * (square_size + 2) + 2;
     y := (ypos - 1) * (square_size + 2) + 2;
     str := replace(replace(replace(replace(square_template, '#X#', x), '#Y#', y), '#W#', w), '#H#', h);
-    if assigned_colors.exists(query_result(1)(i)) then
-       str := replace(str, '#CLASS#', query_result(1)(i));
-    end if;
-    str := replace(replace(str, '#CLASS#', query_result(1)(i)), '#URL#', query_result(2)(i));
-    svg_squares_list(svg_squares_list.count + 1) := '<g><title>' || query_result(1)(i) || '</title>' || str || '</g>';
+    str := replace(replace(str, '#CLASS#', result_table(i).value), '#URL#', result_table(i).url);
+    result_table(i).svg_rect_code := str;
+    i := result_table.next(i);
   end loop;
 end;
-
--- before refactoring
-/*
-inner_div varchar2(500) :=
-    '<div onclick="location.href=''#REF#'';" style="#STYLE#" title="#TITLE#"></div>';
-css_color_attr varchar2(30) := ' background-color: ';
-type string_list is table of varchar2(4000) index by binary_integer;
-type strstr_list is table of varchar2(4000) index by varchar2(10);
-
-*/
 
 function render_colorize (
       p_region              in apex_plugin.t_region,
@@ -165,29 +140,24 @@ function render_colorize (
       p_is_printer_friendly in boolean )
       return apex_plugin.t_region_render_result is
 
-  query_result    apex_plugin_util.t_column_value_list;
-  result_table    colorize_result_table;
-  --div_list        string_list;
-  --legend_list     strstr_list;
-  k               number;
-  div             varchar2(1000);
-  ref             varchar2(1000);
-  style           varchar2(1000);
-  pos             number;
-  l_idx           varchar2(10);
-  -- after refactoring
-  others_color     color.hex_value%type;
-  color_list       t_color;
-  assigned_colors  t_assigned_color;
-  square_size      number := nvl(p_region.attribute_06, 20);
-  squares_in_col   number := nvl(p_region.attribute_07, 20);
-  defs_list        t_string;
-  svg_squares_list t_string;
-  others_label     varchar2(4000) := nvl(p_region.attribute_08, 'Other values');
-  
+  query_result   apex_plugin_util.t_column_value_list;
+  result_table   colorize_result_table;
+  others_color   color.hex_value%type;
+  color_list     colorize_color_table;
+  square_size    number := nvl(p_region.attribute_06, 20);
+  squares_in_col number := nvl(p_region.attribute_07, 20);
+  defs_list      t_string;
+  others_label   varchar2(4000) := nvl(p_region.attribute_08, 'Other values');
+  i              number;
 begin
+  dbms_application_info.set_module('render_colorize', '');
+  
+  dbms_application_info.set_action('init_colors');
+  
   init_colors (p_region, others_color, color_list);
- 
+  
+  dbms_application_info.set_action('perform query');
+  
   query_result := apex_plugin_util.get_data (
       p_sql_statement      => p_region.source,
       p_min_columns        => 1,
@@ -202,17 +172,23 @@ begin
      return null;
   end if;
   
+  dbms_application_info.set_action('convert_to_result_table');
+  
   convert_to_result_table (query_result, result_table);
+  
+  dbms_application_info.set_action('rt ' || result_table.count || ' r, color_list ' || color_list.count || ' r');
+  
+  htp.p('3 query_result = ' || query_result(1).count || ' result_table = ' || result_table.count || '<br />');
 
   if p_region.attribute_05 = '1' then
-     assign_colors_to_first (result_table, color_list, assigned_colors);
+     assign_colors_to_first (result_table, color_list);
   else
-     assign_colors_to_frequent (result_table, color_list, assigned_colors);
+     assign_colors_to_frequent (result_table, color_list);
   end if;
 
-  prepare_defs_list (assigned_colors, others_label, others_color, defs_list);
+  prepare_defs_list (result_table, others_label, others_color, defs_list);
   
-  prepare_squares_list (query_result, assigned_colors, others_color, square_size, squares_in_col, svg_squares_list);
+  prepare_squares_list (result_table, others_color, square_size, squares_in_col);
   
   htp.p('<svg width="800" height="500"><defs>');
   for i in defs_list.first .. defs_list.last loop
@@ -220,53 +196,14 @@ begin
   end loop;
   htp.p('</defs>');
   
-  for i in svg_squares_list.first .. svg_squares_list.last loop
-    htp.p(svg_squares_list(i));
+  i := result_table.first;
+  while i is not null loop
+    htp.p(result_table(i).svg_rect_code);
   end loop;
   htp.p('</svg>');
   
---before refactoring:
-/*
-  k := query_result.first;
-  for i in query_result(k).first .. query_result(k).last loop
-    ref := 'http://dxdy.ru/post' || query_result(1)(i) || '.html#p' || query_result(1)(i);
-    style := inner_style || css_color_attr || query_result(3)(i);
-
-    div := replace(inner_div, '#TITLE#', query_result(2)(i));
-    div := replace(      div,   '#REF#', ref);
-    div := replace(      div, '#STYLE#', style);
-
-    div_list(div_list.count + 1) := div;
-
-    legend_list(query_result(3)(i)) := query_result(2)(i);
-  end loop;
-
-  k := ceil(div_list.count / 15);
-  htp.p('<div style="float: left; clear: both;">');
-  for i in 1 .. 15 loop
-    htp.p('<div style="float: left; clear: both; display: inline-block; overflow-x: auto; overflow-y: hidden; white-space: nowrap; margin: 1px;">');
-    for j in 1 .. k loop
-      pos := (j - 1) * 15 + i;
-
-      if pos <= div_list.last then
-         htp.p(div_list(pos));
-      end if;
-    end loop;
-    htp.p('</div>');
-  end loop;
-  htp.p('</div>');
-
-  htp.p('<div style="float: left; clear: both; margin: 20px;">');
-  l_idx := legend_list.first;
-  while (l_idx is not null) loop
-    htp.p('<div style="display: inline-block; vertical-align: middle; margin: 2px; width: 150px; height: 30px;">');
-    htp.p('<div style="display: inline-block; vertical-align: middle; margin: 1px; width:  20px; height: 20px; ' || css_color_attr || l_idx || '"></div>');
-    htp.p('<div style="display: inline-block; vertical-align: middle; margin: 1px; height: 20px;">' || legend_list(l_idx) || '</div>');
-    htp.p('</div>');
-    l_idx := legend_list.next(l_idx);
-  end loop;
-  htp.p('</div>');
-*/
+  dbms_application_info.set_module('', '');
+  
   return null;
  -- exception when others then return null;
 end;

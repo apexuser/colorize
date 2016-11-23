@@ -74,10 +74,12 @@ insert into color (hex_value, color_set_id) values ('#000000', 1);
 commit;
 
 create or replace type colorize_result_row as object (
-  id    number,
-  value varchar2(4000),
-  url   varchar2(4000),
-  color color.hex_value%type
+  id            number,
+  value         varchar2(4000),
+  url           varchar2(4000),
+  color         varchar2(7),
+  svg_def       varchar2(4000),
+  svg_rect_code varchar2(4000)
 );
 /
 
