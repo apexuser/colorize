@@ -70,7 +70,6 @@ insert into color (hex_value, color_set_id) values ('#000060', 1);
 insert into color (hex_value, color_set_id) values ('#606000', 1);
 insert into color (hex_value, color_set_id) values ('#600060', 1);
 insert into color (hex_value, color_set_id) values ('#006060', 1);
-insert into color (hex_value, color_set_id) values ('#000000', 1);
 commit;
 
 create global temporary table colorize_result (

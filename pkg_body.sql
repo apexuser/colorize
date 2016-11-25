@@ -1,6 +1,7 @@
 create or replace package body colorize as
 
 type t_string is table of varchar2(4000);
+reg_id number;
 
 procedure init_colors (
       p_region      in apex_plugin.t_region,
@@ -8,7 +9,7 @@ procedure init_colors (
 begin
   if p_region.attribute_01 = '1' then
      insert into colorize_colors (id, color)
-     select rownum, regexp_substr(p_region.attribute_02,'[^,]+', 1, level) 
+     select rownum, regexp_substr(p_region.attribute_02,'[^,]+', 1, level)
        from dual
     connect by regexp_substr(p_region.attribute_02, '[^,]+', 1, level) is not null;
 
@@ -18,7 +19,7 @@ begin
      select rownum, c.hex_value
        from color c join color_set s on s.color_set_id = c.color_set_id
       where s.color_set_name = p_region.attribute_04;
-     
+
      select s.others_color
        into others_color
        from color_set s
@@ -68,10 +69,11 @@ procedure prepare_defs_list (
 begin
   select svg_def
     bulk collect into defs_list
-    from (select replace(replace(def_template, '#VALUE#', cr.value), '#COLOR#', cr.color) svg_def
+    from (select distinct replace(replace(def_template, '#VALUE#', cr.value || '_' || reg_id), '#COLOR#', cr.color) svg_def
             from colorize_result cr
+           where cr.color is not null
            union all
-          select replace(replace(def_template, '#VALUE#', others_value), '#COLOR#', others_color)
+          select replace(replace(def_template, '#VALUE#', others_value || '_' || reg_id), '#COLOR#', others_color)
             from dual
           );
 end;
@@ -92,15 +94,31 @@ procedure prepare_squares (
   i number;
 begin
   update colorize_result
-     set svg_rect_code = 
+     set svg_rect_code =
           '<g><title>'     || value || '</title>' || case when url is null then null else '<a xlink:href="' || url || '" target="_blank">' end ||
-          '<rect x="'      || to_char(floor(id / squares_in_col) * (square_size + 2) + 2) ||
-              '" y="'      || to_char((id - floor(id / squares_in_col) * squares_in_col - 1) * (square_size + 2) + 2) ||
+          '<rect x="'      || to_char(floor((id - 1)/squares_in_col) * (square_size + 2) + 2) ||
+              '" y="'      || to_char(mod   (id - 1, squares_in_col) * (square_size + 2) + 24) ||
               '" width="'  || w ||
               '" height="' || h ||
-              '" class="'  || case when color is null then others_value else value end ||
-              '" style="cursor:pointer;"/>' || case when url is null then null else '</a>' end || 
+              '" class="'  || case when color is null then others_value else value end || '_' || reg_id ||
+              '" style="cursor:pointer;"/>' || case when url is null then null else '</a>' end ||
           '</g>';
+end;
+
+function legend_value (
+      square_size in number,
+      value       in varchar2,
+      color         in varchar2) return varchar2 is
+begin
+  return  '<div style="display: inline-block; margin: 5px;">' ||
+          '<div style=" width: ' || square_size || 'px;
+                        height: ' || square_size || 'px;
+                        background-color: ' || color || ';
+                        margin: 5px;
+                        display: inline-block;
+                        vertical-align: middle;"></div>' ||
+          '<p style="display: inline-block; margin: 5px; vertical-align: middle;">' || value || '</p>' ||
+          '</div>';
 end;
 
 function render_colorize (
@@ -117,6 +135,7 @@ function render_colorize (
   others_label   varchar2(4000) := nvl(p_region.attribute_08, 'Other values');
   i              number;
 begin
+  reg_id := p_region.id;
   query_result := apex_plugin_util.get_data (
       p_sql_statement      => p_region.source,
       p_min_columns        => 1,
@@ -125,39 +144,44 @@ begin
       p_search_type        => null,
       p_search_column_name => null,
       p_search_string      => null);
-      
+
   if query_result(1).count = 0 then
      htp.p(p_region.no_data_found_message);
      return null;
   end if;
-  
+
   init_colors (p_region, others_color);
   convert_to_result_table (query_result);
   assign_colors(p_region);
   prepare_defs_list (others_label, others_color, defs_list);
   prepare_squares (others_label, others_color, square_size, squares_in_col);
-  
-  htp.p('<div><svg width="' || ((ceil(query_result(1).count / squares_in_col) + 2) * square_size + 2) || 
-               '" height="' || ((squares_in_col + 2) * square_size + 2) || '"><defs>');
+
+  htp.p('<div style="display: inline-block; vertical-align: baseline; width: 100%; overflow-x: auto;"><svg width="' || (ceil(query_result(1).count / squares_in_col)  * (square_size + 2) + 2) ||
+               '" height="' || ((squares_in_col + 2) * square_size + 24) || '"><defs>');
   for i in defs_list.first .. defs_list.last loop
     htp.p(defs_list(i));
   end loop;
   htp.p('</defs>');
-  
-  for i in (select svg_rect_code from colorize_result) loop
+
+  for i in (select id, svg_rect_code from colorize_result) loop
     htp.p(i.svg_rect_code);
+    if mod(i.id, squares_in_col * 5) = 0 then
+       htp.p('<text x="' || to_char(floor((i.id - 1)/squares_in_col) * (square_size + 2) + 2) || '" y="20" fill="#808080">' || floor(i.id / squares_in_col) || '</text>');
+    end if;
   end loop;
-  
+
   htp.p('</svg></div>');
-  
-  htp.p('<div>');
-  for i in defs_list.first .. defs_list.last loop
-    htp.p('<div></div>');
+
+  htp.p('<div style="display: inline-block; vertical-align: baseline;">');
+  for i in (select distinct value, color from colorize_result where color is not null) loop
+    htp.p(legend_value(square_size, i.value, i.color));
   end loop;
+  htp.p(legend_value(square_size, others_label, others_color));
   htp.p('</div>');
-  
+
+  delete from colorize_result;
+  delete from colorize_colors;
   return null;
-  --exception when others then return null;
 end;
 
 end colorize;
