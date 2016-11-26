@@ -35,7 +35,7 @@ wwv_flow_api.create_plugin(
 ,p_supported_ui_types=>'DESKTOP:JQM_SMARTPHONE'
 ,p_render_function=>'colorize.render_colorize'
 ,p_standard_attributes=>'SOURCE_SQL:SOURCE_REQUIRED:NO_DATA_FOUND_MESSAGE'
-,p_sql_min_column_count=>2
+,p_sql_min_column_count=>3
 ,p_sql_examples=>wwv_flow_utilities.join(wwv_flow_t_varchar2(
 'select value_column, url_column',
 '  from source_table'))
