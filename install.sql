@@ -85,6 +85,8 @@ create global temporary table colorize_colors (
   color         varchar2(7)
 ) on commit delete rows;
 
+create sequence colorize_tmp_seq;
+
 @pkg;
 @pkg_body;
 show errors
